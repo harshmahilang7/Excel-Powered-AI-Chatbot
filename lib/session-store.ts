@@ -3,16 +3,22 @@ import Fuse from "fuse.js";
 import type { ParsedExcel, StudentRow } from "@/types";
 import { buildSearchIndex } from "./search";
 
-// Falls back to globalThis for local dev if Upstash env vars are not set
-const useRedis =
-  !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN;
+// Lazily create the Redis client so it's never instantiated at build/import time.
+// Falls back to globalThis in-memory store for local dev.
+let _redis: Redis | null | undefined = undefined;
 
-const redis = useRedis
-  ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    })
-  : null;
+function getRedis(): Redis | null {
+  if (_redis !== undefined) return _redis;
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    _redis = null;
+    return null;
+  }
+  _redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+  return _redis;
+}
 
 const TTL_SECONDS = 2 * 60 * 60; // 2 hours
 
@@ -48,8 +54,8 @@ export async function saveSession(
   excel: ParsedExcel,
   fuse: Fuse<StudentRow>
 ): Promise<void> {
+  const redis = getRedis();
   if (redis) {
-    // Store only the serialisable excel data; Fuse is rebuilt on retrieval
     await redis.set(`session:${sessionId}`, JSON.stringify(excel), {
       ex: TTL_SECONDS,
     });
@@ -59,16 +65,15 @@ export async function saveSession(
 }
 
 export async function getSession(sessionId: string): Promise<SessionData | null> {
+  const redis = getRedis();
   if (redis) {
     const raw = await redis.get<string>(`session:${sessionId}`);
     if (!raw) return null;
 
-    // redis.get already parses JSON, but handle both string and object
     const excel: ParsedExcel =
       typeof raw === "string" ? (JSON.parse(raw) as ParsedExcel) : (raw as unknown as ParsedExcel);
 
     const fuse = buildSearchIndex(excel.rows, excel.headers);
-    // Refresh TTL on access
     await redis.expire(`session:${sessionId}`, TTL_SECONDS);
     return { excel, fuse };
   }
@@ -87,6 +92,7 @@ export async function getSession(sessionId: string): Promise<SessionData | null>
 }
 
 export async function clearSession(sessionId: string): Promise<void> {
+  const redis = getRedis();
   if (redis) {
     await redis.del(`session:${sessionId}`);
   } else {
