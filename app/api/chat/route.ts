@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     return errorStream("Session ID is missing. Please refresh the page.", 400);
   }
 
-  const session = getSession(sessionId.trim());
+  const session = await getSession(sessionId.trim());
   if (!session) {
     return errorStream(
       "Your session has expired or no data was found. Please re-upload the file to continue.",

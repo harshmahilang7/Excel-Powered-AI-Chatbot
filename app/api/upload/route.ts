@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     const stats = computeColumnStats(parsed.rows, parsed.headers);
 
     const fuse = buildSearchIndex(parsed.rows, parsed.headers);
-    saveSession(sessionId, parsed, fuse);
+    await saveSession(sessionId, parsed, fuse);
 
     return NextResponse.json({
       success: true,

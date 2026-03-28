@@ -8,13 +8,13 @@ export async function GET(req: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ active: false });
   }
-  return NextResponse.json({ active: hasSession(sessionId) });
+  return NextResponse.json({ active: await hasSession(sessionId) });
 }
 
 export async function DELETE(req: NextRequest) {
   const sessionId = req.nextUrl.searchParams.get("sessionId");
   if (sessionId) {
-    clearSession(sessionId);
+    await clearSession(sessionId);
   }
   return NextResponse.json({ success: true });
 }
