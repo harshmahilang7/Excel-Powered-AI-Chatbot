@@ -4,6 +4,8 @@ A full-stack reference implementation showing how to build a **production-qualit
 
 Upload any structured spreadsheet. Ask questions in plain English. Get streamed, markdown-rich answers grounded entirely in your data.
 
+**Live demo → [excel-powered-ai-chatbot.vercel.app](https://excel-powered-ai-chatbot.vercel.app)**
+
 ---
 
 ## What This Demonstrates
@@ -17,7 +19,7 @@ This project is an end-to-end example of a **Retrieval-Augmented Generation (RAG
 | Fallback retrieval | Token-based scan | Handles long natural-language queries that Fuse misses |
 | LLM answering | Groq + LLaMA 3.3 70B | Fast inference; model never sees raw data it doesn't need |
 | Streaming | NDJSON over `ReadableStream` | Token-by-token delivery; no buffering, no timeout risk |
-| Session state | `globalThis` in-process store | No Redis/DB dependency; survives Next.js HMR in dev |
+| Session state | Upstash Redis (prod) / `globalThis` (dev) | Survives serverless cold starts; falls back to in-memory locally |
 
 ---
 
@@ -31,7 +33,7 @@ POST /api/upload ──────────────▶   parseExcelBuffe
   FormData { file, sessionId }         └─ validate headers, rows, types
                                         └─ computeColumnStats()
                                      buildSearchIndex()   ← Fuse.js
-                                     saveSession()        ← globalThis Map
+                                     saveSession()        ← Upstash Redis (prod) / globalThis (dev)
   ◀──── JSON { headers, stats } ─────────────────────────────────────────
 
 POST /api/chat ─────────────────▶  getSession(sessionId)
@@ -273,16 +275,94 @@ User sends message
 
 ## Deployment
 
-### Vercel (Recommended — Zero Config)
+**Live deployment:** [excel-powered-ai-chatbot.vercel.app](https://excel-powered-ai-chatbot.vercel.app)
+
+### Stack used in production
+
+| Service | Role | Tier |
+|---|---|---|
+| [Vercel](https://vercel.com) | Hosting + serverless functions | Hobby (free) |
+| [Upstash Redis](https://upstash.com) | Session persistence across serverless instances | Free (10k commands/day) |
+| [Groq](https://console.groq.com) | LLaMA 3.3 70B inference | Free tier |
+
+---
+
+### Why Upstash Redis is required on Vercel
+
+Vercel runs each API route as an isolated serverless function. A file uploaded via `/api/upload` saves to one function instance; the subsequent `/api/chat` call may land on a completely different instance with an empty memory state — causing a 404 session-not-found error.
+
+Upstash Redis is a serverless-native key-value store that persists session data across all function instances. The session store automatically falls back to `globalThis` in-memory storage for local development when the Upstash env vars are not set.
+
+---
+
+### Deploy your own
+
+**Step 1 — Fork and push to GitHub**
 
 ```bash
-npm i -g vercel
-vercel
+git clone https://github.com/Aftabbs/Excel-Powered-AI-Chatbot.git
+cd Excel-Powered-AI-Chatbot
+# make your changes
+git push origin main
 ```
 
-Set `GROQ_API_KEY` in the Vercel dashboard under **Project → Settings → Environment Variables**.
+**Step 2 — Create a free Upstash Redis database**
 
-The `app/api/chat/route.ts` uses `export const maxDuration = 60` to extend the function timeout for streaming responses. On Vercel's Hobby plan the limit is 60s; Pro plan supports up to 300s.
+1. Sign up at [upstash.com](https://upstash.com)
+2. Create a database → choose a region close to your Vercel deployment
+3. Copy the **REST URL** and **REST Token** from the database dashboard
+
+**Step 3 — Import the repo into Vercel**
+
+1. Go to [vercel.com](https://vercel.com) → **Add New → Project**
+2. Import your GitHub repository
+3. Vercel auto-detects Next.js — leave all build settings as defaults
+
+**Step 4 — Add environment variables**
+
+In **Project → Settings → Environment Variables**, add all three:
+
+| Variable | Where to get it |
+|---|---|
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys |
+| `UPSTASH_REDIS_REST_URL` | Upstash dashboard → your database → REST API |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash dashboard → your database → REST API |
+
+> Make sure the values have **no surrounding quotes** — paste the raw string directly.
+
+**Step 5 — Deploy**
+
+Click **Deploy**. Vercel builds and goes live in ~1 minute.
+
+Future pushes to `main` trigger automatic redeployments.
+
+---
+
+### Vercel function limits
+
+The chat route uses `export const maxDuration = 60` to extend the serverless timeout for streaming responses.
+
+| Plan | Max duration | Bandwidth |
+|---|---|---|
+| Hobby (free) | 60s | 100 GB/month |
+| Pro | 300s | 1 TB/month |
+
+60 seconds is more than sufficient for any query on this app.
+
+---
+
+### Upstash free tier capacity
+
+Each chat message consumes 2 Redis commands (`GET` + `EXPIRE`). Each file upload consumes 1 (`SET`).
+
+| Free tier limit | Equivalent usage |
+|---|---|
+| 10,000 commands/day | ~5,000 chat messages/day |
+| 256 MB storage | Hundreds of concurrent sessions (data auto-expires after 2h) |
+
+If you exceed the free tier, Upstash charges **$0.20 per 100,000 additional commands** — negligible for most deployments.
+
+---
 
 ### Docker
 
@@ -305,10 +385,11 @@ CMD ["node", "server.js"]
 ```
 
 Add `output: "standalone"` to `next.config.ts` for the standalone build.
+Set `GROQ_API_KEY`, `UPSTASH_REDIS_REST_URL`, and `UPSTASH_REDIS_REST_TOKEN` as container environment variables.
 
 ### Railway / Render / Fly.io
 
-These platforms auto-detect Next.js. Set the `GROQ_API_KEY` environment variable in the dashboard and deploy from GitHub.
+These platforms auto-detect Next.js. Set all three environment variables in the dashboard and deploy from GitHub. No Redis configuration changes needed — the same Upstash REST client works from any host.
 
 ---
 
