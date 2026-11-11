@@ -4,7 +4,6 @@ A full-stack reference implementation showing how to build a **production-qualit
 
 Upload any structured spreadsheet. Ask questions in plain English. Get streamed, markdown-rich answers grounded entirely in your data.
 
-**Live demo → [excel-powered-ai-chatbot.vercel.app](https://excel-powered-ai-chatbot.vercel.app)**
 
 ---
 
