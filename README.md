@@ -273,9 +273,6 @@ User sends message
 
 ---
 
-## Deployment
-
-**Live deployment:** [excel-powered-ai-chatbot.vercel.app](https://excel-powered-ai-chatbot.vercel.app)
 
 ### Stack used in production
 
